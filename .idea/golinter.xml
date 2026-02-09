@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="GoLinterFmtOnSave">
+    <option name="enabledOnSave" value="true" />
+  </component>
+  <component name="GoLinterSettings">
+    <option name="enabledFormatters">
+      <list>
+        <option value="gofumpt" />
+        <option value="golines" />
+        <option value="gofmt" />
+        <option value="gci" />
+        <option value="goimports" />
+      </list>
+    </option>
+  </component>
+</project>
