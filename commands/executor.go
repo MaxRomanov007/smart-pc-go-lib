@@ -12,11 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MaxRomanov007/smart-pc-go-lib/domain/models/message"
 	"github.com/MaxRomanov007/smart-pc-go-lib/logger/sl"
 	"github.com/gorilla/websocket"
 )
 
-type CommandFunc func(context.Context, *Message) error
+type CommandFunc func(context.Context, *message.Message) error
 
 type Executor struct {
 	commands       map[string]CommandFunc
@@ -131,7 +132,7 @@ func (e *Executor) listen(
 	}()
 
 	for {
-		msg := new(Message)
+		msg := new(message.Message)
 		err := conn.ReadJSON(msg)
 		if err != nil {
 			if isConnectionClosedError(err) {
@@ -156,9 +157,13 @@ func (e *Executor) listen(
 			continue
 		}
 
+		commandLog := log.With(sl.MsgId(msg))
+
+		commandLog.Info("received command", slog.String("command", msg.Payload.Data.Command))
+
 		handler := e.getHandler(msg.Payload.Data.Command)
 		if handler == nil {
-			log.Debug("handler not found, skipping")
+			commandLog.Warn("handler not found, skipping")
 			continue
 		}
 
@@ -167,33 +172,33 @@ func (e *Executor) listen(
 		completedAt := time.Now()
 
 		if err != nil {
-			var scriptErr *CommandError
-			if errors.As(err, &scriptErr) {
-				log.Debug("script error", sl.Err(scriptErr))
+			var commandErr *CommandError
+			if errors.As(err, &commandErr) {
+				commandLog.Info("command error", sl.Err(commandErr))
 
 				if err := sendLog(
 					e.logURL.String(),
-					ScriptFailed(
+					CommandFailed(
 						msg.Payload.Data.Command,
 						e.logMessageType,
-						scriptErr,
+						commandErr,
 						receivedAt,
 						completedAt,
 					),
 					token,
 				); err != nil {
-					log.Warn("failed to send script error log", sl.Err(err))
+					commandLog.Warn("failed to send command error log", sl.Err(err))
 				}
 				continue
 			}
 
-			log.Warn("failed to handle message", sl.Err(err))
+			commandLog.Error("failed to handle message", sl.Err(err))
 			if err := sendLog(
 				e.logURL.String(),
 				Internal(msg.Payload.Data.Command, e.logMessageType, receivedAt, completedAt),
 				token,
 			); err != nil {
-				log.Debug("failed to send internal error log", sl.Err(err))
+				commandLog.Warn("failed to send internal error log", sl.Err(err))
 			}
 			continue
 		}
@@ -203,7 +208,7 @@ func (e *Executor) listen(
 			Done(msg.Payload.Data.Command, e.logMessageType, receivedAt, completedAt),
 			token,
 		); err != nil {
-			log.Debug("failed to send done log", sl.Err(err))
+			commandLog.Warn("failed to send done log", sl.Err(err))
 		}
 	}
 }

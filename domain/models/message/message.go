@@ -1,4 +1,4 @@
-package commands
+package message
 
 import (
 	"encoding/json"
