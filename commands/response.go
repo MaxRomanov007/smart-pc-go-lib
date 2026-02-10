@@ -6,7 +6,7 @@ import (
 
 const (
 	DoneCode = iota
-	ScriptErrorCode
+	CommandErrorCode
 	InternalErrorCode
 )
 
@@ -59,7 +59,7 @@ func CommandFailed(
 	err *CommandError,
 	receivedAt, completedAt time.Time,
 ) *Response {
-	return newResponse(command, err.Error(), messageType, ScriptErrorCode, receivedAt, completedAt)
+	return newResponse(command, err.Error(), messageType, CommandErrorCode, receivedAt, completedAt)
 }
 
 func Internal(command, messageType string, receivedAt, completedAt time.Time) *Response {
