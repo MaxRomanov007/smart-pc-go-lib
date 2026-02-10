@@ -4,11 +4,13 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/MaxRomanov007/smart-pc-go-lib/commands"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 const (
 	RequestIdLogKey = "request_id"
+	MessageIdLogKey = "message_id"
 	OpLogKey        = "operation"
 	ErrorLogKey     = "error"
 )
@@ -33,5 +35,12 @@ func ReqId(r *http.Request) slog.Attr {
 	return slog.Attr{
 		Key:   RequestIdLogKey,
 		Value: slog.StringValue(reqId),
+	}
+}
+
+func MsgId(m *commands.Message) slog.Attr {
+	return slog.Attr{
+		Key:   MessageIdLogKey,
+		Value: slog.IntValue(int(m.MessageID)),
 	}
 }
