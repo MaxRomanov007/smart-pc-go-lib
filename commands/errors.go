@@ -1,9 +1,13 @@
 package commands
 
-type ScriptError struct {
+type CommandError struct {
 	Message string
 }
 
-func (e *ScriptError) Error() string {
+func (e *CommandError) Error() string {
 	return e.Message
+}
+
+func Error(message string) error {
+	return &CommandError{message}
 }

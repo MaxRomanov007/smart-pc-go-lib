@@ -56,7 +56,7 @@ func Done(command, messageType string, receivedAt, completedAt time.Time) *Respo
 
 func ScriptFailed(
 	command, messageType string,
-	err *ScriptError,
+	err *CommandError,
 	receivedAt, completedAt time.Time,
 ) *Response {
 	return newResponse(command, err.Error(), messageType, ScriptErrorCode, receivedAt, completedAt)

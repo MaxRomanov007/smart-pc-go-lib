@@ -167,7 +167,7 @@ func (e *Executor) listen(
 		completedAt := time.Now()
 
 		if err != nil {
-			var scriptErr *ScriptError
+			var scriptErr *CommandError
 			if errors.As(err, &scriptErr) {
 				log.Debug("script error", sl.Err(scriptErr))
 
