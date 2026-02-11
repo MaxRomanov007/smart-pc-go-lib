@@ -119,8 +119,7 @@ func (e *Executor) listen(
 
 	log := l.With(sl.Op(op))
 
-	dialer := websocket.Dialer{}
-	conn, _, err := dialer.DialContext(ctx, url, nil)
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {
 		return fmt.Errorf("%s: failed to dial websocket: %w", op, err)
 	}
