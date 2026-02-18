@@ -35,6 +35,7 @@ type Config struct {
 	LoadToken      LoadTokenFunc  // Function to load saved tokens
 	SaveToken      SaveTokenFunc  // Function to save token
 	CallbackConfig CallbackConfig
+	UserInfoURL    string
 }
 
 // acquireNewToken performs a complete OAuth2 authorization flow to obtain a new token.

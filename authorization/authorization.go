@@ -2,9 +2,13 @@ package authorization
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sync"
 
+	"github.com/MaxRomanov007/smart-pc-go-lib/domain/models/user"
 	"golang.org/x/oauth2"
 )
 
@@ -92,4 +96,32 @@ func (a *Auth) tokenDangerously(ctx context.Context) (string, error) {
 	a.token = token
 
 	return a.token.AccessToken, nil
+}
+
+func (a *Auth) FetchUserInfo(ctx context.Context) (*user.Info, error) {
+	const op = "lib.authorization.authorization.FetchUserInfo"
+
+	client := a.cfg.Oauth2Config.Client(ctx, a.token)
+
+	resp, err := client.Get(a.cfg.UserInfoURL)
+	if err != nil {
+		return nil, fmt.Errorf("%s: failed to get user info: %w", op, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: userinfo request failed, status code: %s", op, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: failed to read response body: %w", op, err)
+	}
+
+	userinfo := new(user.Info)
+	if err := json.Unmarshal(body, userinfo); err != nil {
+		return nil, fmt.Errorf("%s: failed to unmarshal user info: %w", op, err)
+	}
+
+	return userinfo, nil
 }

@@ -9,7 +9,6 @@
         <option value="gofumpt" />
         <option value="golines" />
         <option value="gofmt" />
-        <option value="gci" />
         <option value="goimports" />
       </list>
     </option>

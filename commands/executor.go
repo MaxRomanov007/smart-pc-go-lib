@@ -1,42 +1,36 @@
 package commands
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
+	"github.com/MaxRomanov007/smart-pc-go-lib/authorization"
 	"github.com/MaxRomanov007/smart-pc-go-lib/domain/models/message"
 	"github.com/MaxRomanov007/smart-pc-go-lib/logger/sl"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gorilla/websocket"
 )
+
+const connectionCheckTimeout = time.Second
 
 type CommandFunc func(context.Context, *message.Message) error
 
 type Executor struct {
 	commands       map[string]CommandFunc
 	defaultCommand CommandFunc
-	logURL         *url.URL
-	logMessageType string
+	clientOptions  *mqtt.ClientOptions
 }
 
-func NewExecutor(logUrl, logMessageType string) (*Executor, error) {
-	logURL, err := url.Parse(logUrl)
-	if err != nil {
-		return nil, err
-	}
-
+func NewExecutor(opts *mqtt.ClientOptions) (*Executor, error) {
 	return &Executor{
 		commands:       make(map[string]CommandFunc),
 		defaultCommand: nil,
-		logURL:         logURL,
-		logMessageType: logMessageType,
+		clientOptions:  opts,
 	}, nil
 }
 
@@ -58,27 +52,44 @@ func (e *Executor) Start(ctx context.Context, l *slog.Logger, opts *StartOptions
 	}
 
 	failingsCount := 0
-
-	var err error
 	for failingsCount <= opts.ReconnectAttempts {
 		token, authErr := opts.Auth.Token(ctx)
 		if authErr == nil {
 			log.Debug("listening channel")
 
-			err = e.listen(ctx, log, opts.urlWithToken(token), opts.MessageType, token)
-			if err == nil || isConnectionClosedError(err) {
+			userinfo, err := opts.Auth.FetchUserInfo(ctx)
+			if err != nil {
+				return fmt.Errorf("%s: failed to fetch user info: %w", op, err)
+			}
+
+			e.clientOptions.SetUsername(userinfo.Sub)
+			e.clientOptions.SetPassword(token)
+			e.clientOptions.SetReconnectingHandler(
+				func(client mqtt.Client, options *mqtt.ClientOptions) {
+				},
+			)
+			err = e.listen(
+				ctx,
+				mqtt.NewClient(e.clientOptions),
+				log,
+				opts.UserTopic(userinfo.Sub),
+				opts.MessageType,
+				opts.LogTopic,
+				opts.LogMessageType,
+			)
+			if err == nil {
 				failingsCount = 0
 				continue
 			}
+
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("%s: context canceled: %w", op, err)
 			}
+
+			log.Warn("failed to listen channel", sl.Err(err))
 		}
 		if authErr != nil {
 			log.Warn("failed to get token", sl.Err(authErr))
-		}
-		if err != nil {
-			log.Warn("failed to listen channel", sl.Err(err))
 		}
 
 		failingsCount++
@@ -87,9 +98,6 @@ func (e *Executor) Start(ctx context.Context, l *slog.Logger, opts *StartOptions
 			log.Warn("reconnecting", slog.Int("attempt", failingsCount))
 			time.Sleep(opts.ReconnectDelay)
 		}
-	}
-	if err != nil {
-		return fmt.Errorf("%s: failed to start executor: %w", op, err)
 	}
 
 	return nil
@@ -110,104 +118,152 @@ func isSyntaxError(err error) bool {
 	return errors.As(err, &jsonErr)
 }
 
+func reconnectHandler(
+	ctx context.Context,
+	log *slog.Logger,
+	auth *authorization.Auth,
+) mqtt.ReconnectHandler {
+	return func(_ mqtt.Client, opts *mqtt.ClientOptions) {
+		const op = "commands.executor.reconnect"
+
+		log := log.With(sl.Op(op))
+
+		log.Debug("reconnecting")
+
+		token, err := auth.Token(ctx)
+		if err != nil {
+			log.Warn("failed to fetch token", sl.Err(err))
+			return
+		}
+
+		opts.SetPassword(token)
+	}
+}
+
 func (e *Executor) listen(
 	ctx context.Context,
+	client mqtt.Client,
 	l *slog.Logger,
-	url, messageType, token string,
+	topic, messageType, logTopic, logMessageType string,
 ) error {
 	const op = "commands.executor.listen"
 
 	log := l.With(sl.Op(op))
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
-	if err != nil {
-		return fmt.Errorf("%s: failed to dial websocket: %w", op, err)
+	client.IsConnected()
+
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		return fmt.Errorf("%s: failed to connect: %w", op, token.Error())
 	}
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Error("failed to close connection with websocket")
-		}
-	}()
+	defer client.Disconnect(250)
+
+	if token := client.Subscribe(
+		topic,
+		1,
+		e.messageHandler(ctx, log, messageType, logTopic, logMessageType),
+	); token.Wait() &&
+		token.Error() != nil {
+		return fmt.Errorf("%s: failed to subscribe: %w", op, token.Error())
+	}
+	defer client.Unsubscribe(topic)
+
+	ticker := time.NewTicker(connectionCheckTimeout)
+	defer ticker.Stop()
 
 	for {
-		msg := new(message.Message)
-		err := conn.ReadJSON(msg)
-		if err != nil {
-			if isConnectionClosedError(err) {
-				log.Debug("connection closed", sl.Err(err))
-				return err
+		select {
+		case <-ticker.C:
+			if !client.IsConnected() {
+				return nil
 			}
-
-			if isSyntaxError(err) {
-				log.Debug("message syntax error", sl.Err(err))
-				continue
-			}
-
-			return fmt.Errorf("%s: failed to read message: %w", op, err)
+		case <-ctx.Done():
+			return fmt.Errorf("%s: context canceled: %w", op, ctx.Err())
 		}
+	}
+}
 
-		log.Debug("received message", slog.Any("message", *msg))
+func (e *Executor) messageHandler(
+	ctx context.Context,
+	log *slog.Logger,
+	messageType, logTopic, logMessageType string,
+) mqtt.MessageHandler {
+	return func(client mqtt.Client, mqttMessage mqtt.Message) {
+		const op = "commands.executor.messageHandler"
+
+		log := log.With(sl.Op(op), sl.MsgId(mqttMessage))
+		log.Debug("received message")
 
 		receivedAt := time.Now()
 
-		if msg.Payload.Type != messageType {
+		msg := new(message.Message)
+		if err := json.Unmarshal(mqttMessage.Payload(), msg); err != nil {
+			log.Error("failed to unmarshal payload", sl.Err(err))
+			return
+		}
+
+		if msg.Type != messageType {
 			log.Debug("invalid message type, skipping")
-			continue
+			return
 		}
 
-		commandLog := log.With(sl.MsgId(msg))
+		log.Info(
+			"received command",
+			slog.String("command", msg.Data.Command),
+		)
 
-		commandLog.Info("received command", slog.String("command", msg.Payload.Data.Command))
-
-		handler := e.getHandler(msg.Payload.Data.Command)
+		handler := e.getHandler(msg.Data.Command)
 		if handler == nil {
-			commandLog.Warn("handler not found, skipping")
-			continue
+			log.Warn("handler not found, skipping")
+			return
 		}
 
-		err = handler(ctx, msg)
+		err := handler(ctx, msg)
 
 		completedAt := time.Now()
 
 		if err != nil {
-			var commandErr *CommandError
-			if errors.As(err, &commandErr) {
-				commandLog.Info("command error", sl.Err(commandErr))
+			if commandErr, ok := errors.AsType[*CommandError](err); ok {
+				log.Info("command error", sl.Err(commandErr))
 
 				if err := sendLog(
-					e.logURL.String(),
+					client,
+					logTopic,
 					CommandFailed(
-						msg.Payload.Data.Command,
-						e.logMessageType,
+						msg.Data.Command,
+						logMessageType,
 						commandErr,
 						receivedAt,
 						completedAt,
 					),
-					token,
 				); err != nil {
-					commandLog.Warn("failed to send command error log", sl.Err(err))
+					log.Warn("failed to send command error log", sl.Err(err))
 				}
-				continue
+				return
 			}
 
-			commandLog.Error("failed to handle message", sl.Err(err))
+			log.Error("failed to handle message", sl.Err(err))
 			if err := sendLog(
-				e.logURL.String(),
-				Internal(msg.Payload.Data.Command, e.logMessageType, receivedAt, completedAt),
-				token,
+				client,
+				logTopic,
+				Internal(
+					msg.Data.Command,
+					logMessageType,
+					receivedAt,
+					completedAt,
+				),
 			); err != nil {
-				commandLog.Warn("failed to send internal error log", sl.Err(err))
+				log.Warn("failed to send internal error log", sl.Err(err))
 			}
-			continue
+			return
 		}
 
 		if err := sendLog(
-			e.logURL.String(),
-			Done(msg.Payload.Data.Command, e.logMessageType, receivedAt, completedAt),
-			token,
+			client,
+			logTopic,
+			Done(msg.Data.Command, logMessageType, receivedAt, completedAt),
 		); err != nil {
-			commandLog.Warn("failed to send done log", sl.Err(err))
+			log.Warn("failed to send done log", sl.Err(err))
+			return
 		}
 	}
 }
@@ -220,14 +276,7 @@ func (e *Executor) getHandler(key string) CommandFunc {
 	return e.defaultCommand
 }
 
-type logResponse struct {
-	Status int    `json:"status"`
-	Error  string `json:"error,omitempty"`
-}
-
-const logResponseStatusOK = 0
-
-func sendLog(url string, resp *Response, token string) error {
+func sendLog(client mqtt.Client, topic string, resp *Response) error {
 	const op = "commands.response.Send"
 
 	data, err := json.Marshal(*resp)
@@ -235,28 +284,8 @@ func sendLog(url string, resp *Response, token string) error {
 		return fmt.Errorf("%s: failed to marshal json: %w", op, err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("%s: failed to create request: %w", op, err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	client := &http.Client{}
-	response, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("%s: failed to send request: %w", op, err)
-	}
-	defer func() { _ = response.Body.Close() }()
-
-	var result logResponse
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return fmt.Errorf("%s: failed to decode json: %w", op, err)
-	}
-
-	if result.Status != logResponseStatusOK {
-		return fmt.Errorf("%s: failed to send log: %w", op, errors.New(result.Error))
+	if token := client.Publish(topic, 0, false, data); token.Wait() && token.Error() != nil {
+		return fmt.Errorf("%s: failed to send log: %w", op, token.Error())
 	}
 
 	return nil

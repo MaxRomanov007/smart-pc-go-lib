@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/MaxRomanov007/smart-pc-go-lib/domain/models/message"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -38,9 +38,9 @@ func ReqId(r *http.Request) slog.Attr {
 	}
 }
 
-func MsgId(m *message.Message) slog.Attr {
+func MsgId(m mqtt.Message) slog.Attr {
 	return slog.Attr{
 		Key:   MessageIdLogKey,
-		Value: slog.IntValue(int(m.MessageID)),
+		Value: slog.Uint64Value(uint64(m.MessageID())),
 	}
 }
