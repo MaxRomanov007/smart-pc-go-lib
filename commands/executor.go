@@ -6,32 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/MaxRomanov007/smart-pc-go-lib/authorization"
 	"github.com/MaxRomanov007/smart-pc-go-lib/domain/models/message"
 	"github.com/MaxRomanov007/smart-pc-go-lib/logger/sl"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/gorilla/websocket"
 )
-
-const connectionCheckTimeout = time.Second
 
 type CommandFunc func(context.Context, *message.Message) error
 
 type Executor struct {
 	commands       map[string]CommandFunc
 	defaultCommand CommandFunc
-	clientOptions  *mqtt.ClientOptions
+	client         mqtt.Client
+	commandTopic   string
 }
 
-func NewExecutor(opts *mqtt.ClientOptions) (*Executor, error) {
+func NewExecutor() *Executor {
 	return &Executor{
 		commands:       make(map[string]CommandFunc),
 		defaultCommand: nil,
-		clientOptions:  opts,
-	}, nil
+	}
 }
 
 func (e *Executor) Set(name string, command CommandFunc) {
@@ -42,80 +38,67 @@ func (e *Executor) SetDefault(command CommandFunc) {
 	e.defaultCommand = command
 }
 
-func (e *Executor) Start(ctx context.Context, l *slog.Logger, opts *StartOptions) error {
+func (e *Executor) Connect(ctx context.Context, opts *ConnectOptions) error {
 	const op = "commands.executor.Start"
-
-	log := l.With(sl.Op(op))
 
 	if err := opts.check(); err != nil {
 		return fmt.Errorf("%s: options validate failed: %w", op, err)
 	}
 
-	failingsCount := 0
-	for failingsCount <= opts.ReconnectAttempts {
-		token, authErr := opts.Auth.Token(ctx)
-		if authErr == nil {
-			log.Debug("listening channel")
+	token, err := opts.Auth.Token(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: failed to get token: %w", op, err)
+	}
+	userinfo, err := opts.Auth.FetchUserInfo(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: fetch user info failed: %w", op, err)
+	}
+	e.commandTopic = opts.UserTopic(userinfo.Sub)
 
-			userinfo, err := opts.Auth.FetchUserInfo(ctx)
-			if err != nil {
-				return fmt.Errorf("%s: failed to fetch user info: %w", op, err)
-			}
+	opts.MQTTOptions.SetUsername(userinfo.Sub)
+	opts.MQTTOptions.SetPassword(token)
+	opts.MQTTOptions.SetCleanSession(false)
+	opts.MQTTOptions.SetReconnectingHandler(reconnectHandler(ctx, opts.Log, opts.Auth))
 
-			e.clientOptions.SetUsername(userinfo.Sub)
-			e.clientOptions.SetPassword(token)
-			e.clientOptions.SetReconnectingHandler(
-				func(client mqtt.Client, options *mqtt.ClientOptions) {
-				},
-			)
-			err = e.listen(
-				ctx,
-				mqtt.NewClient(e.clientOptions),
-				log,
-				opts.UserTopic(userinfo.Sub),
-				opts.MessageType,
-				opts.LogTopic,
-				opts.LogMessageType,
-			)
-			if err == nil {
-				failingsCount = 0
-				continue
-			}
+	client := mqtt.NewClient(opts.MQTTOptions)
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		return fmt.Errorf("%s: failed to connect: %w", op, token.Error())
+	}
+	e.client = client
 
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("%s: context canceled: %w", op, err)
-			}
-
-			log.Warn("failed to listen channel", sl.Err(err))
-		}
-		if authErr != nil {
-			log.Warn("failed to get token", sl.Err(authErr))
-		}
-
-		failingsCount++
-
-		if failingsCount <= opts.ReconnectAttempts {
-			log.Warn("reconnecting", slog.Int("attempt", failingsCount))
-			time.Sleep(opts.ReconnectDelay)
-		}
+	if token := e.client.Subscribe(
+		e.commandTopic,
+		1,
+		e.messageHandler(
+			ctx,
+			opts.Log,
+			opts.MessageType,
+			opts.UserLogTopic(userinfo.Sub),
+			opts.LogMessageType,
+		),
+	); token.Wait() &&
+		token.Error() != nil {
+		return fmt.Errorf("%s: failed to subscribe: %w", op, token.Error())
 	}
 
 	return nil
 }
 
-func isConnectionClosedError(err error) bool {
-	return errors.Is(err, websocket.ErrCloseSent) ||
-		websocket.IsCloseError(
-			err,
-			websocket.CloseAbnormalClosure,
-			websocket.CloseNoStatusReceived,
-		) ||
-		strings.Contains(err.Error(), "closed network connection")
-}
+func (e *Executor) Disconnect() error {
+	const op = "commands.executor.Disconnect"
 
-func isSyntaxError(err error) bool {
-	var jsonErr *json.SyntaxError
-	return errors.As(err, &jsonErr)
+	if token := e.client.Unsubscribe(e.commandTopic); token.Wait() && token.Error() != nil {
+		return fmt.Errorf(
+			"%s: failed to unsubscribe from topic %q: %w",
+			op,
+			e.commandTopic,
+			token.Error(),
+		)
+	}
+
+	e.client.Disconnect(250)
+
+	return nil
 }
 
 func reconnectHandler(
@@ -137,48 +120,6 @@ func reconnectHandler(
 		}
 
 		opts.SetPassword(token)
-	}
-}
-
-func (e *Executor) listen(
-	ctx context.Context,
-	client mqtt.Client,
-	l *slog.Logger,
-	topic, messageType, logTopic, logMessageType string,
-) error {
-	const op = "commands.executor.listen"
-
-	log := l.With(sl.Op(op))
-
-	client.IsConnected()
-
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		return fmt.Errorf("%s: failed to connect: %w", op, token.Error())
-	}
-	defer client.Disconnect(250)
-
-	if token := client.Subscribe(
-		topic,
-		1,
-		e.messageHandler(ctx, log, messageType, logTopic, logMessageType),
-	); token.Wait() &&
-		token.Error() != nil {
-		return fmt.Errorf("%s: failed to subscribe: %w", op, token.Error())
-	}
-	defer client.Unsubscribe(topic)
-
-	ticker := time.NewTicker(connectionCheckTimeout)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if !client.IsConnected() {
-				return nil
-			}
-		case <-ctx.Done():
-			return fmt.Errorf("%s: context canceled: %w", op, ctx.Err())
-		}
 	}
 }
 
@@ -211,7 +152,7 @@ func (e *Executor) messageHandler(
 			slog.String("command", msg.Data.Command),
 		)
 
-		handler := e.getHandler(msg.Data.Command)
+		handler := e.getCommand(msg.Data.Command)
 		if handler == nil {
 			log.Warn("handler not found, skipping")
 			return
@@ -268,15 +209,15 @@ func (e *Executor) messageHandler(
 	}
 }
 
-func (e *Executor) getHandler(key string) CommandFunc {
-	if handler, ok := e.commands[key]; ok {
-		return handler
+func (e *Executor) getCommand(key string) CommandFunc {
+	if command, ok := e.commands[key]; ok {
+		return command
 	}
 
 	return e.defaultCommand
 }
 
-func sendLog(client mqtt.Client, topic string, resp *Response) error {
+func sendLog(client mqtt.Client, topic string, resp *LogMessage) error {
 	const op = "commands.response.Send"
 
 	data, err := json.Marshal(*resp)

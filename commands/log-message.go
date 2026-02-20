@@ -10,7 +10,7 @@ const (
 	InternalErrorCode
 )
 
-type ResponseData struct {
+type LogMessageData struct {
 	Command     string    `json:"command"`
 	ReceivedAt  time.Time `json:"receivedAt"`
 	CompletedAt time.Time `json:"completeAt"`
@@ -18,39 +18,29 @@ type ResponseData struct {
 	Message     string    `json:"message,omitempty"`
 }
 
-type ResponsePayload struct {
-	Type string       `json:"type"`
-	Data ResponseData `json:"data"`
-}
-
-type Response struct {
-	Retained bool            `json:"retained"`
-	QOS      byte            `json:"qos"`
-	Payload  ResponsePayload `json:"payload"`
+type LogMessage struct {
+	Type string         `json:"type"`
+	Data LogMessageData `json:"data"`
 }
 
 func newResponse(
 	command, message, messageType string,
 	code int,
 	receivedAt, completedAt time.Time,
-) *Response {
-	return &Response{
-		Retained: false,
-		QOS:      1,
-		Payload: ResponsePayload{
-			Type: messageType,
-			Data: ResponseData{
-				Command:     command,
-				ReceivedAt:  receivedAt,
-				CompletedAt: completedAt,
-				Message:     message,
-				Code:        code,
-			},
+) *LogMessage {
+	return &LogMessage{
+		Type: messageType,
+		Data: LogMessageData{
+			Command:     command,
+			ReceivedAt:  receivedAt,
+			CompletedAt: completedAt,
+			Message:     message,
+			Code:        code,
 		},
 	}
 }
 
-func Done(command, messageType string, receivedAt, completedAt time.Time) *Response {
+func Done(command, messageType string, receivedAt, completedAt time.Time) *LogMessage {
 	return newResponse(command, "", messageType, DoneCode, receivedAt, completedAt)
 }
 
@@ -58,11 +48,11 @@ func CommandFailed(
 	command, messageType string,
 	err *CommandError,
 	receivedAt, completedAt time.Time,
-) *Response {
+) *LogMessage {
 	return newResponse(command, err.Error(), messageType, CommandErrorCode, receivedAt, completedAt)
 }
 
-func Internal(command, messageType string, receivedAt, completedAt time.Time) *Response {
+func Internal(command, messageType string, receivedAt, completedAt time.Time) *LogMessage {
 	return newResponse(
 		command,
 		"internal error",

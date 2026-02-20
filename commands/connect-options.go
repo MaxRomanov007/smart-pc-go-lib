@@ -3,22 +3,23 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"time"
+	"log/slog"
 
 	"github.com/MaxRomanov007/smart-pc-go-lib/authorization"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-type StartOptions struct {
-	Auth              *authorization.Auth
-	Topic             string
-	MessageType       string
-	LogTopic          string
-	LogMessageType    string
-	ReconnectDelay    time.Duration
-	ReconnectAttempts int
+type ConnectOptions struct {
+	Auth           *authorization.Auth
+	Topic          string
+	MessageType    string
+	LogTopic       string
+	LogMessageType string
+	Log            *slog.Logger
+	MQTTOptions    *mqtt.ClientOptions
 }
 
-func (o *StartOptions) check() error {
+func (o *ConnectOptions) check() error {
 	errs := make([]error, 0, 3)
 
 	if o.Auth == nil {
@@ -36,6 +37,12 @@ func (o *StartOptions) check() error {
 	if o.LogMessageType == "" {
 		errs = append(errs, errors.New("log message type required"))
 	}
+	if o.Log == nil {
+		errs = append(errs, errors.New("log required"))
+	}
+	if o.MQTTOptions == nil {
+		errs = append(errs, errors.New("mqtt option required"))
+	}
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -44,6 +51,10 @@ func (o *StartOptions) check() error {
 	return nil
 }
 
-func (o *StartOptions) UserTopic(userID string) string {
+func (o *ConnectOptions) UserTopic(userID string) string {
 	return fmt.Sprintf("users/%s/%s", userID, o.Topic)
+}
+
+func (o *ConnectOptions) UserLogTopic(userID string) string {
+	return fmt.Sprintf("users/%s/%s", userID, o.LogTopic)
 }
