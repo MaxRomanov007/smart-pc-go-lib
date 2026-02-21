@@ -1,11 +1,8 @@
 package mqttAuth
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/MaxRomanov007/smart-pc-go-lib/authorization"
-	"github.com/MaxRomanov007/smart-pc-go-lib/domain/models/user"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
@@ -13,35 +10,17 @@ const UsersTopic = "users"
 
 type Client struct {
 	mqtt.Client
-	auth     *authorization.Auth
-	userinfo *user.Info
+	userID string
 }
 
-func (c *Client) userTopic(ctx context.Context, topic string) (string, error) {
-	const op = "mqtt-auth.client.userTopic"
+func NewClient(options *ClientOptions) *Client {
+	client := mqtt.NewClient(options.ClientOptions)
 
-	userinfo, err := c.getUserInfo(ctx)
-	if err != nil {
-		return "", fmt.Errorf("%s: failed to get userinfo: %w", op, err)
-	}
-
-	return fmt.Sprintf("%s/%s/%s", UsersTopic, userinfo.Sub, topic), nil
+	return &Client{Client: client, userID: options.userID}
 }
 
-func (c *Client) getUserInfo(ctx context.Context) (*user.Info, error) {
-	const op = "mqtt-auth.client.getUserInfo"
-
-	if c.userinfo != nil {
-		return c.userinfo, nil
-	}
-
-	userinfo, err := c.auth.FetchUserInfo(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%s: failed to fetch userinfo: %w", op, err)
-	}
-
-	c.userinfo = userinfo
-	return userinfo, nil
+func (c *Client) userTopic(topic string) string {
+	return fmt.Sprintf("%s/%s/%s", UsersTopic, c.userID, topic)
 }
 
 func (c *Client) Connect() error {
@@ -55,7 +34,6 @@ func (c *Client) Connect() error {
 }
 
 func (c *Client) Publish(
-	ctx context.Context,
 	topic string,
 	qos byte,
 	retained bool,
@@ -63,10 +41,7 @@ func (c *Client) Publish(
 ) error {
 	const op = "mqtt-auth.client.Publish"
 
-	userTopic, err := c.userTopic(ctx, topic)
-	if err != nil {
-		return fmt.Errorf("%s: failed to get user topic: %w", op, err)
-	}
+	userTopic := c.userTopic(topic)
 
 	if token := c.Client.Publish(
 		userTopic,
@@ -82,17 +57,13 @@ func (c *Client) Publish(
 }
 
 func (c *Client) Subscribe(
-	ctx context.Context,
 	topic string,
 	qos byte,
 	callback mqtt.MessageHandler,
 ) error {
 	const op = "mqtt-auth.client.Subscribe"
 
-	userTopic, err := c.userTopic(ctx, topic)
-	if err != nil {
-		return fmt.Errorf("%s: failed to get user topic: %w", op, err)
-	}
+	userTopic := c.userTopic(topic)
 
 	if token := c.Client.Subscribe(userTopic, qos, callback); token.Wait() && token.Error() != nil {
 		return fmt.Errorf("%s: failed to subscribe on topic %q: %w", op, userTopic, token.Error())
@@ -101,6 +72,40 @@ func (c *Client) Subscribe(
 	return nil
 }
 
-//    SubscribeMultiple(filters map[string]byte, callback MessageHandler) Token
-//    Unsubscribe(topics ...string) Token
-//    AddRoute(topic string, callback MessageHandler)
+func (c *Client) SubscribeMultiple(filters map[string]byte, callback mqtt.MessageHandler) error {
+	const op = "mqtt-auth.client.SubscribeMultiple"
+
+	userFilters := make(map[string]byte, len(filters))
+	for topic, filter := range filters {
+		userFilters[c.userTopic(topic)] = filter
+	}
+
+	if token := c.Client.SubscribeMultiple(
+		userFilters,
+		callback,
+	); token.Wait() &&
+		token.Error() != nil {
+		return fmt.Errorf("%s: failed to subscribe: %w", op, token.Error())
+	}
+
+	return nil
+}
+
+func (c *Client) Unsubscribe(topics ...string) error {
+	const op = "mqtt-auth.client.Unsubscribe"
+
+	userTopics := make([]string, len(topics))
+	for i, topic := range topics {
+		userTopics[i] = c.userTopic(topic)
+	}
+
+	if token := c.Client.Unsubscribe(userTopics...); token.Wait() && token.Error() != nil {
+		return fmt.Errorf("%s: failed to unsubscribe: %w", op, token.Error())
+	}
+
+	return nil
+}
+
+func (c *Client) AddRoute(topic string, callback mqtt.MessageHandler) {
+	c.Client.AddRoute(c.userTopic(topic), callback)
+}

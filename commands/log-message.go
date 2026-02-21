@@ -13,7 +13,7 @@ const (
 type LogMessageData struct {
 	Command     string    `json:"command"`
 	ReceivedAt  time.Time `json:"receivedAt"`
-	CompletedAt time.Time `json:"completeAt"`
+	CompletedAt time.Time `json:"completedAt"`
 	Code        int       `json:"code"`
 	Message     string    `json:"message,omitempty"`
 }
@@ -23,9 +23,8 @@ type LogMessage struct {
 	Data LogMessageData `json:"data"`
 }
 
-func newResponse(
-	command, message, messageType string,
-	code int,
+func NewLogMessage(
+	command, messageType string,
 	receivedAt, completedAt time.Time,
 ) *LogMessage {
 	return &LogMessage{
@@ -34,31 +33,22 @@ func newResponse(
 			Command:     command,
 			ReceivedAt:  receivedAt,
 			CompletedAt: completedAt,
-			Message:     message,
-			Code:        code,
 		},
 	}
 }
 
-func Done(command, messageType string, receivedAt, completedAt time.Time) *LogMessage {
-	return newResponse(command, "", messageType, DoneCode, receivedAt, completedAt)
+func (m *LogMessage) Done() *LogMessage {
+	m.Data.Code = DoneCode
+	return m
 }
 
-func CommandFailed(
-	command, messageType string,
-	err *CommandError,
-	receivedAt, completedAt time.Time,
-) *LogMessage {
-	return newResponse(command, err.Error(), messageType, CommandErrorCode, receivedAt, completedAt)
+func (m *LogMessage) CommandFailed(err *CommandError) *LogMessage {
+	m.Data.Code = CommandErrorCode
+	m.Data.Message = err.Error()
+	return m
 }
 
-func Internal(command, messageType string, receivedAt, completedAt time.Time) *LogMessage {
-	return newResponse(
-		command,
-		"internal error",
-		messageType,
-		InternalErrorCode,
-		receivedAt,
-		completedAt,
-	)
+func (m *LogMessage) Internal() *LogMessage {
+	m.Data.Code = InternalErrorCode
+	return m
 }
