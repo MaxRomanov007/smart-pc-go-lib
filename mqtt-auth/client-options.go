@@ -12,7 +12,7 @@ import (
 
 type ClientOptions struct {
 	*mqtt.ClientOptions
-	userID string
+	topicFactory *TopicFactory
 }
 
 func NewClientOptions(
@@ -38,7 +38,7 @@ func NewClientOptions(
 	options.SetCleanSession(false)
 	options.SetReconnectingHandler(reconnectHandler(ctx, log, auth))
 
-	return &ClientOptions{ClientOptions: options, userID: userinfo.Sub}, nil
+	return &ClientOptions{ClientOptions: options, topicFactory: NewTopicFactory(userinfo.Sub)}, nil
 }
 
 func reconnectHandler(
@@ -61,4 +61,14 @@ func reconnectHandler(
 
 		opts.SetPassword(token)
 	}
+}
+
+func (o *ClientOptions) SetWill(
+	topic string,
+	payload string,
+	qos byte,
+	retained bool,
+) *mqtt.ClientOptions {
+	userTopic := o.topicFactory.UserTopic(topic)
+	return o.ClientOptions.SetWill(userTopic, payload, qos, retained)
 }

@@ -6,21 +6,15 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
-const UsersTopic = "users"
-
 type Client struct {
 	mqtt.Client
-	userID string
+	topicFactory *TopicFactory
 }
 
 func NewClient(options *ClientOptions) *Client {
 	client := mqtt.NewClient(options.ClientOptions)
 
-	return &Client{Client: client, userID: options.userID}
-}
-
-func (c *Client) userTopic(topic string) string {
-	return fmt.Sprintf("%s/%s/%s", UsersTopic, c.userID, topic)
+	return &Client{Client: client, topicFactory: options.topicFactory}
 }
 
 func (c *Client) Connect() error {
@@ -41,7 +35,7 @@ func (c *Client) Publish(
 ) error {
 	const op = "mqtt-auth.client.Publish"
 
-	userTopic := c.userTopic(topic)
+	userTopic := c.topicFactory.UserTopic(topic)
 
 	if token := c.Client.Publish(
 		userTopic,
@@ -63,7 +57,7 @@ func (c *Client) Subscribe(
 ) error {
 	const op = "mqtt-auth.client.Subscribe"
 
-	userTopic := c.userTopic(topic)
+	userTopic := c.topicFactory.UserTopic(topic)
 
 	if token := c.Client.Subscribe(userTopic, qos, callback); token.Wait() && token.Error() != nil {
 		return fmt.Errorf("%s: failed to subscribe on topic %q: %w", op, userTopic, token.Error())
@@ -77,7 +71,7 @@ func (c *Client) SubscribeMultiple(filters map[string]byte, callback mqtt.Messag
 
 	userFilters := make(map[string]byte, len(filters))
 	for topic, filter := range filters {
-		userFilters[c.userTopic(topic)] = filter
+		userFilters[c.topicFactory.UserTopic(topic)] = filter
 	}
 
 	if token := c.Client.SubscribeMultiple(
@@ -96,7 +90,7 @@ func (c *Client) Unsubscribe(topics ...string) error {
 
 	userTopics := make([]string, len(topics))
 	for i, topic := range topics {
-		userTopics[i] = c.userTopic(topic)
+		userTopics[i] = c.topicFactory.UserTopic(topic)
 	}
 
 	if token := c.Client.Unsubscribe(userTopics...); token.Wait() && token.Error() != nil {
@@ -107,5 +101,5 @@ func (c *Client) Unsubscribe(topics ...string) error {
 }
 
 func (c *Client) AddRoute(topic string, callback mqtt.MessageHandler) {
-	c.Client.AddRoute(c.userTopic(topic), callback)
+	c.Client.AddRoute(c.topicFactory.UserTopic(topic), callback)
 }
