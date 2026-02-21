@@ -3,8 +3,6 @@ package commands
 import (
 	"errors"
 	"log/slog"
-
-	mqttAuth "github.com/MaxRomanov007/smart-pc-go-lib/mqtt-auth"
 )
 
 type StartListenOptions struct {
@@ -13,17 +11,16 @@ type StartListenOptions struct {
 	LogTopic           string
 	LogMessageType     string
 	Log                *slog.Logger
-	Client             *mqttAuth.Client
 }
 
 func (o *StartListenOptions) check() error {
-	errs := make([]error, 0, 6)
+	errs := make([]error, 0, 5)
 
 	if o.CommandTopic == "" {
-		errs = append(errs, errors.New("topic required"))
+		errs = append(errs, errors.New("command topic required"))
 	}
 	if o.CommandMessageType == "" {
-		errs = append(errs, errors.New("message type required"))
+		errs = append(errs, errors.New("command message type required"))
 	}
 	if o.LogTopic == "" {
 		errs = append(errs, errors.New("log topic type required"))
@@ -33,9 +30,6 @@ func (o *StartListenOptions) check() error {
 	}
 	if o.Log == nil {
 		errs = append(errs, errors.New("log required"))
-	}
-	if o.Client == nil {
-		errs = append(errs, errors.New("mqtt client required"))
 	}
 
 	if len(errs) > 0 {
