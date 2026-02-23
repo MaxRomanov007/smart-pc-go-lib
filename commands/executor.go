@@ -124,6 +124,7 @@ func (e *Executor) messageHandler(
 			return
 		}
 
+		msg.Publish = publish
 		err := handler(ctx, msg)
 
 		completedAt := time.Now()

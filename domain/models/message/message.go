@@ -3,6 +3,8 @@ package message
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/eclipse/paho.golang/paho"
 )
 
 type Data struct {
@@ -11,8 +13,9 @@ type Data struct {
 }
 
 type Message struct {
-	Type string `json:"type"`
-	Data Data   `json:"data"`
+	Type    string        `json:"type"`
+	Data    Data          `json:"data"`
+	Publish *paho.Publish `json:"-"`
 }
 
 func Parameter[T any](msg *Message) (T, error) {
