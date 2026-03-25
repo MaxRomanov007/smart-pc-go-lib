@@ -55,38 +55,58 @@ func (c *Connection) Subscribe(ctx context.Context, s *paho.Subscribe) (*paho.Su
 	}
 
 	ack, err := c.ConnectionManager.Subscribe(ctx, s)
-	if err != nil {
-		if ack != nil && ack.Reasons != nil && len(ack.Reasons) > 0 {
-			return nil, fmt.Errorf(
-				"%s: failed to subscribe (reason %d): %w",
-				op,
-				ack.Reasons[0],
-				err,
-			)
-		}
+	if err == nil {
+		return ack, nil
+	}
+
+	if ack == nil || ack.Reasons == nil || len(ack.Reasons) == 0 ||
+		ack.Reasons[0] != packets.SubackNotauthorized {
 		return ack, fmt.Errorf("%s: failed to subscribe: %w", op, err)
+	}
+
+	if err := c.Renew(ctx); err != nil {
+		return ack, fmt.Errorf("%s: failed to renew connection: %w", op, err)
+	}
+
+	ack, err = c.ConnectionManager.Subscribe(ctx, s)
+	if err != nil {
+		return ack, fmt.Errorf("%s: failed to subscribe after renew: %w", op, err)
 	}
 
 	return ack, nil
 }
 
 func (c *Connection) Unsubscribe(ctx context.Context, u *paho.Unsubscribe) (*paho.Unsuback, error) {
-	const op = "mqtt-auth.connection.Subscribe"
+	const op = "mqtt-auth.connection.Unsubscribe"
 
 	for i := 0; i < len(u.Topics); i++ {
 		u.Topics[i] = c.topicFactory.UserTopic(u.Topics[i])
 	}
 
 	ack, err := c.ConnectionManager.Unsubscribe(ctx, u)
-	if err != nil {
+	if err == nil {
+		return ack, nil
+	}
+
+	if ack == nil || ack.Reasons == nil || len(ack.Reasons) == 0 ||
+		ack.Reasons[0] != packets.UnsubackNotAuthorized {
 		return ack, fmt.Errorf("%s: failed to unsubscribe: %w", op, err)
+	}
+
+	if err := c.Renew(ctx); err != nil {
+		return ack, fmt.Errorf("%s: failed to renew connection: %w", op, err)
+	}
+
+	ack, err = c.ConnectionManager.Unsubscribe(ctx, u)
+	if err != nil {
+		return ack, fmt.Errorf("%s: failed to unsubscribe after renew: %w", op, err)
 	}
 
 	return ack, nil
 }
 
 func (c *Connection) Publish(ctx context.Context, p *paho.Publish) (*paho.PublishResponse, error) {
-	const op = "mqtt-auth.connection.Subscribe"
+	const op = "mqtt-auth.connection.Publish"
 
 	p.Topic = c.topicFactory.UserTopic(p.Topic)
 
@@ -112,7 +132,7 @@ func (c *Connection) Publish(ctx context.Context, p *paho.Publish) (*paho.Publis
 }
 
 func (c *Connection) PublishViaQueue(ctx context.Context, p *autopaho.QueuePublish) error {
-	const op = "mqtt-auth.connection.Subscribe"
+	const op = "mqtt-auth.connection.PublishViaQueue"
 
 	p.Topic = c.topicFactory.UserTopic(p.Topic)
 

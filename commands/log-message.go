@@ -5,17 +5,17 @@ import (
 )
 
 const (
-	DoneCode = iota
-	CommandErrorCode
-	InternalErrorCode
+	StatusOK            = "ok"
+	StatusCommandError  = "command-error"
+	StatusInternalError = "internal-error"
 )
 
 type LogMessageData struct {
 	Command     string    `json:"command"`
 	ReceivedAt  time.Time `json:"receivedAt"`
 	CompletedAt time.Time `json:"completedAt"`
-	Code        int       `json:"code"`
-	Message     string    `json:"message,omitempty"`
+	Status      string    `json:"status"`
+	Error       string    `json:"error,omitempty"`
 }
 
 type LogMessage struct {
@@ -37,18 +37,18 @@ func NewLogMessage(
 	}
 }
 
-func (m *LogMessage) Done() *LogMessage {
-	m.Data.Code = DoneCode
+func (m *LogMessage) OK() *LogMessage {
+	m.Data.Status = StatusOK
 	return m
 }
 
 func (m *LogMessage) CommandFailed(err *CommandError) *LogMessage {
-	m.Data.Code = CommandErrorCode
-	m.Data.Message = err.Error()
+	m.Data.Status = StatusCommandError
+	m.Data.Error = err.Error()
 	return m
 }
 
 func (m *LogMessage) Internal() *LogMessage {
-	m.Data.Code = InternalErrorCode
+	m.Data.Status = StatusInternalError
 	return m
 }

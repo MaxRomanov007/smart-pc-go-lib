@@ -131,7 +131,7 @@ func (e *Executor) messageHandler(
 		logMessage := NewLogMessage(msg.Data.Command, logMessageType, receivedAt, completedAt)
 
 		if err == nil {
-			if err := e.sendLog(ctx, logTopic, logMessage.Done()); err != nil {
+			if err := e.sendLog(ctx, logTopic, logMessage.OK()); err != nil {
 				log.Warn("failed to send done log", sl.Err(err))
 				return
 			}
