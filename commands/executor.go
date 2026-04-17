@@ -97,7 +97,7 @@ func (e *Executor) messageHandler(
 	return func(publish *paho.Publish) {
 		const op = "commands.executor.messageHandler"
 
-		log := log.With(sl.Op(op), sl.MsgId(publish))
+		log := log.With(sl.Op(op), sl.MsgID(publish))
 		log.Debug("received message")
 
 		receivedAt := time.Now()

@@ -29,7 +29,7 @@ func Op(op string) slog.Attr {
 	}
 }
 
-func ReqId(r *http.Request) slog.Attr {
+func ReqID(r *http.Request) slog.Attr {
 	reqId := middleware.GetReqID(r.Context())
 
 	return slog.Attr{
@@ -38,7 +38,7 @@ func ReqId(r *http.Request) slog.Attr {
 	}
 }
 
-func MsgId(m *paho.Publish) slog.Attr {
+func MsgID(m *paho.Publish) slog.Attr {
 	return slog.Attr{
 		Key:   MessageIdLogKey,
 		Value: slog.Uint64Value(uint64(m.PacketID)),
