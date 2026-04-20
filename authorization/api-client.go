@@ -1,6 +1,7 @@
 package authorization
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -80,13 +81,26 @@ func DoNewRequest[T any](
 	ac *ApiClient,
 	method string,
 	url string,
-	body io.Reader,
+	body any,
 ) (*response.Response[T], error) {
 	const op = "authorization.DoNewRequest"
 
-	req, err := ac.NewRequest(ctx, method, url, body)
+	var bodyReader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("%s: failed to marshal body: %w", op, err)
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+
+	req, err := ac.NewRequest(ctx, method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("%s: failed to create request: %w", op, err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := DoRequest[T](ac, req)
