@@ -14,7 +14,7 @@ type Data struct {
 
 type Message mqttMessage.Message[Data]
 
-func Parameter[T any](msg Message) (T, error) {
+func Parameter[T any](msg *Message) (T, error) {
 	const op = "models.command-message.Parameter"
 
 	var result T
