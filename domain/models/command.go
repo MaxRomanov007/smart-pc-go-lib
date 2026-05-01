@@ -7,6 +7,7 @@ type Command struct {
 	PcID        *uuid.UUID `json:"pcId,omitempty"`
 	Name        string     `json:"name,omitempty"`
 	Description string     `json:"description,omitempty"`
+	Script      string     `json:"script,omitempty"`
 
 	Pc         *Pc                `json:"pc,omitempty"`
 	Parameters []CommandParameter `json:"parameters,omitempty"`
