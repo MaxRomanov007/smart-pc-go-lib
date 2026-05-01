@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-var AppName = "SmartPCAgent"
+const AppName = "smart-pc"
 
 type CachePath string
 
