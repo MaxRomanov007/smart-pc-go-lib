@@ -73,29 +73,44 @@ func ValidationError(errs validator.ValidationErrors) *Response[types.Nil] {
 	var errMessages []string
 
 	for _, err := range errs {
+		field := fieldName(err)
+		param := err.Param()
+
 		switch err.ActualTag() {
 		case "required":
 			errMessages = append(
 				errMessages,
-				fmt.Sprintf("field %q is a required field", err.Field()),
+				fmt.Sprintf("field %s is a required field", field),
 			)
 		case "url":
 			errMessages = append(
 				errMessages,
-				fmt.Sprintf("field %q is not a valid URL", err.Field()),
+				fmt.Sprintf("field %s is not a valid URL", field),
 			)
 		case "max":
 			errMessages = append(
 				errMessages,
-				fmt.Sprintf("field %q must not exceed %s", err.Field(), err.Param()),
+				fmt.Sprintf("field %s must not exceed %s", field, param),
 			)
 		case "min":
 			errMessages = append(
 				errMessages,
-				fmt.Sprintf("field %q must be at least %s", err.Field(), err.Param()),
+				fmt.Sprintf("field %s must be at least %s", field, param),
 			)
+		case "unique":
+			if param != "" {
+				errMessages = append(
+					errMessages,
+					fmt.Sprintf("field %s must have elements with unique field %s", field, param),
+				)
+			} else {
+				errMessages = append(
+					errMessages,
+					fmt.Sprintf("field %s must have unique elements", field),
+				)
+			}
 		default:
-			errMessages = append(errMessages, fmt.Sprintf("field %q is not valid", err.Field()))
+			errMessages = append(errMessages, fmt.Sprintf("field %s is not valid", field))
 		}
 	}
 
@@ -105,4 +120,8 @@ func ValidationError(errs validator.ValidationErrors) *Response[types.Nil] {
 func (r *Response[T]) WithPagination(p *pagination.Pagination) *Response[T] {
 	r.Pagination = p
 	return r
+}
+
+func fieldName(err validator.FieldError) string {
+	return strings.Join(strings.Split(err.Namespace(), ".")[1:], ".")
 }

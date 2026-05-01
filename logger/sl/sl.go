@@ -12,6 +12,7 @@ const (
 	RequestIdLogKey = "request_id"
 	MessageIdLogKey = "message_id"
 	OpLogKey        = "operation"
+	ComponentLogKey = "component"
 	ErrorLogKey     = "error"
 )
 
@@ -26,6 +27,13 @@ func Op(op string) slog.Attr {
 	return slog.Attr{
 		Key:   OpLogKey,
 		Value: slog.StringValue(op),
+	}
+}
+
+func Component(component string) slog.Attr {
+	return slog.Attr{
+		Key:   ComponentLogKey,
+		Value: slog.StringValue(component),
 	}
 }
 

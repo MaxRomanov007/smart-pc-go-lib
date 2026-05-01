@@ -8,13 +8,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/MaxRomanov007/smart-pc-go-lib/domain/models/message"
+	commandMessage "github.com/MaxRomanov007/smart-pc-go-lib/domain/models/command-message"
 	"github.com/MaxRomanov007/smart-pc-go-lib/logger/sl"
 	mqttAuth "github.com/MaxRomanov007/smart-pc-go-lib/mqtt-auth"
 	"github.com/eclipse/paho.golang/paho"
 )
 
-type CommandFunc func(context.Context, *message.Message) error
+type CommandFunc func(context.Context, *commandMessage.Message) error
 
 type Executor struct {
 	commands       map[string]CommandFunc
@@ -102,7 +102,7 @@ func (e *Executor) messageHandler(
 
 		receivedAt := time.Now()
 
-		msg := new(message.Message)
+		msg := new(commandMessage.Message)
 		if err := json.Unmarshal(publish.Payload, msg); err != nil {
 			log.Error("failed to unmarshal payload", sl.Err(err))
 			return
