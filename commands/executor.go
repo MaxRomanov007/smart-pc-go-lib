@@ -61,11 +61,18 @@ func (e *Executor) StartListen(ctx context.Context, opts *StartListenOptions) er
 		return fmt.Errorf("%s: failed to subscribe on topic: %w", op, err)
 	}
 
+	topicFunc := opts.LogTopicFunc
+	if topicFunc == nil {
+		topicFunc = func(_ *commandMessage.Message) string {
+			return opts.LogTopic
+		}
+	}
+
 	e.router.RegisterHandler(e.commandTopic, e.messageHandler(
 		ctx,
 		opts.Log,
 		opts.CommandMessageType,
-		opts.LogTopic,
+		topicFunc,
 		opts.LogMessageType,
 	))
 
@@ -92,7 +99,9 @@ func (e *Executor) StopListen(ctx context.Context) error {
 func (e *Executor) messageHandler(
 	ctx context.Context,
 	log *slog.Logger,
-	messageType, logTopic, logMessageType string,
+	messageType string,
+	logTopicFunc func(msg *commandMessage.Message) string,
+	logMessageType string,
 ) paho.MessageHandler {
 	return func(publish *paho.Publish) {
 		const op = "commands.executor.messageHandler"
@@ -129,6 +138,7 @@ func (e *Executor) messageHandler(
 
 		completedAt := time.Now()
 		logMessage := NewLogMessage(msg.Data.Command, logMessageType, receivedAt, completedAt)
+		logTopic := logTopicFunc(msg)
 
 		if err == nil {
 			if err := e.sendLog(ctx, logTopic, logMessage.OK()); err != nil {

@@ -3,12 +3,15 @@ package commands
 import (
 	"errors"
 	"log/slog"
+
+	commandMessage "github.com/MaxRomanov007/smart-pc-go-lib/domain/models/command-message"
 )
 
 type StartListenOptions struct {
 	CommandTopic       string
 	CommandMessageType string
 	LogTopic           string
+	LogTopicFunc       func(msg *commandMessage.Message) string
 	LogMessageType     string
 	Log                *slog.Logger
 }
