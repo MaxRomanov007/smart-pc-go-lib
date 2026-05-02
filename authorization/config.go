@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/MaxRomanov007/smart-pc-go-lib/cross-platform/browser"
-
 	"golang.org/x/oauth2"
 )
 
@@ -28,6 +27,8 @@ type (
 	}
 )
 
+type OpenURLFunc func(ctx context.Context, url string) error
+
 // Config holds configuration for OAuth2 authorization flow.
 // It includes OAuth2 configuration, token loading function, and server settings.
 type Config struct {
@@ -36,6 +37,9 @@ type Config struct {
 	SaveToken      SaveTokenFunc  // Function to save token
 	CallbackConfig CallbackConfig
 	UserInfoURL    string
+	// OpenURL is called to open the authorization link.
+	// If nil, browser.OpenContext is used.
+	OpenURL OpenURLFunc
 }
 
 // acquireNewToken performs a complete OAuth2 authorization flow to obtain a new token.
@@ -108,8 +112,8 @@ func (cfg *Config) authorizeUsingBrowser(ctx context.Context) (*oauth2.Token, er
 
 	authCodeURL := cfg.generateAuthCodeUrl(params.state, params.challenge)
 
-	if err := browser.OpenContext(ctx, authCodeURL); err != nil {
-		return nil, fmt.Errorf("%s: failed to open auth code url in browser: %w", op, err)
+	if err := cfg.openURL(ctx, authCodeURL); err != nil {
+		return nil, fmt.Errorf("%s: failed to open url: %w", op, err)
 	}
 
 	code, err := cfg.getCallbackCodeWithTimeout(
@@ -132,6 +136,13 @@ func (cfg *Config) authorizeUsingBrowser(ctx context.Context) (*oauth2.Token, er
 	}
 
 	return token, nil
+}
+
+func (cfg *Config) openURL(ctx context.Context, url string) error {
+	if cfg.OpenURL != nil {
+		return cfg.OpenURL(ctx, url)
+	}
+	return browser.OpenContext(ctx, url)
 }
 
 // generateAuthCodeUrl creates the OAuth2 authorization URL with PKCE parameters.
