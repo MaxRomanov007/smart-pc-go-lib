@@ -10,6 +10,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.2
 	github.com/google/uuid v1.6.0
 	golang.org/x/oauth2 v0.35.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

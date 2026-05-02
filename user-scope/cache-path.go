@@ -58,5 +58,6 @@ func (p *CachePath) MarshalYAML() (interface{}, error) {
 		return "", fmt.Errorf("%s: can not get user cache dir: %w", op, err)
 	}
 
-	return strings.TrimPrefix(ucd, filepath.Join(ucd, AppName, "")), nil
+	prefix := filepath.Join(ucd, AppName) + string(filepath.Separator)
+	return strings.TrimPrefix(string(*p), prefix), nil
 }
